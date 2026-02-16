@@ -66,47 +66,12 @@ class AIAgent:
             )
             return response.content[0].text
         except Exception as e:
-            return "I apologize, I'm having trouble right now."
+            return "I apologize, I am having trouble right now."
 
 ai_agent = AIAgent()
 
 @app.route("/voice", methods=['GET', 'POST'])
-def handle_incoming_call():
-    response = VoiceResponse()
-    caller_id = request.values.get('From', 'Unknown')
-    call_sid = request.values.get('CallSid', 'Unknown')
-    
-    if call_sid not in conversations:
-        conversations[call_sid] = ConversationManager(caller_id)
-    
-    response.say("Thank you for calling. I'm an AI assistant. What can I help you with?", voice='alice')
-    gather = Gather(input='speech', action='/process_speech', speech_timeout='auto', language='en-US')
-    response.append(gather)
-    response.redirect('/voice')
-    return str(response)
-
-@app.route("/process_speech", methods=['POST'])
-def process_speech():
-    response = VoiceResponse()
-    speech_result = request.values.get('SpeechResult', '').strip()
-    call_sid = request.values.get('CallSid', 'Unknown')
-    caller_id = request.values.get('From', 'Unknown')
-    
-    if call_sid not in conversations:
-        conversations[call_sid] = ConversationManager(caller_id)
-    
-    conversation = conversations[call_sid]
-    
-    if not speech_result:
-        response.say("I didn't catch that. Please repeat.")
-        response.redirect('/voice')
-        return str(response)
-    
-    conversation.add_question(speech_result)
-    
-    if conversation.should_escalate():
-        send_sms_notification(conversation)
-        response.say("I'm having trouble finding the answer. Let me take a message. Please speak
+def handle
 cat > ai_phone_answering_system.py << 'EOF'
 #!/usr/bin/env python3
 from flask import Flask, request
@@ -176,7 +141,7 @@ class AIAgent:
             )
             return response.content[0].text
         except Exception as e:
-            return "I apologize, I'm having trouble right now."
+            return "I apologize, I am having trouble right now."
 
 ai_agent = AIAgent()
 
@@ -189,7 +154,7 @@ def handle_incoming_call():
     if call_sid not in conversations:
         conversations[call_sid] = ConversationManager(caller_id)
     
-    response.say("Thank you for calling. I'm an AI assistant. What can I help you with?", voice='alice')
+    response.say("Thank you for calling. I am an AI assistant. What can I help you with?", voice='alice')
     gather = Gather(input='speech', action='/process_speech', speech_timeout='auto', language='en-US')
     response.append(gather)
     response.redirect('/voice')
@@ -208,7 +173,7 @@ def process_speech():
     conversation = conversations[call_sid]
     
     if not speech_result:
-        response.say("I didn't catch that. Please repeat.")
+        response.say("I did not catch that. Please repeat.")
         response.redirect('/voice')
         return str(response)
     
@@ -216,15 +181,69 @@ def process_speech():
     
     if conversation.should_escalate():
         send_sms_notification(conversation)
-        response.say("I'm having trouble finding the answer. Let me take a message. Please speak
-git add .
-git commit -m "Fix for Render deployment"
-git push
-cat > Procfile << 'EOF'
-web: gunicorn --bind 0.0.0.0:$PORT ai_phone_answering_system:app
+        response.say("I am having trouble finding the answer. Let me take a message. Please speak after the tone.", voice='alice')
+        response.record(action='/handle_voicemail', max_length=60, transcribe=True, transcribe_callback='/handle_transcription')
+        return str(response)
+    
+    ai_answer = ai_agent.answer_question(speech_result, conversation.conversation_history)
+    conversation.add_response(ai_answer)
+    
+    response.say(ai_answer, voice='alice')
+    response.say("Anything else I can help with?", voice='alice')
+    
+    gather = Gather(input='speech', action='/process_speech', speech_timeout='auto', timeout=5)
+    response.append(gather)
+    response.say("Thank you for calling!", voice='alice')
+    response.hangup()
+    return str(response)
 
-# Render deployment entry point
-if __name__ != '__main__':
-    # When run by gunicorn, use PORT from environment
-    import os
-    port = int(os.environ.get('PORT', 10000))
+@app.route("/handle_voicemail", methods=['POST'])
+def handle_voicemail():
+    response = VoiceResponse()
+    response.say("Thank you. Someone will call you back soon. Goodbye!", voice='alice')
+    response.hangup()
+    return str(response)
+
+@app.route("/handle_transcription", methods=['POST'])
+def handle_transcription():
+    call_sid = request.values.get('CallSid', 'Unknown')
+    transcription = request.values.get('TranscriptionText', '')
+    if call_sid in conversations:
+        send_sms_with_voicemail(conversations[call_sid], transcription)
+    return '', 200
+
+def send_sms_notification(conversation):
+    if not twilio_client or not YOUR_PHONE_NUMBER:
+        print("Would send SMS:", conversation.get_summary())
+        return
+    try:
+        twilio_client.messages.create(
+            body=f"AI could not answer:\n\n{conversation.get_summary()}",
+            from_=TWILIO_PHONE_NUMBER,
+            to=YOUR_PHONE_NUMBER
+        )
+        print("SMS sent!")
+    except Exception as e:
+        print(f"SMS error: {e}")
+
+def send_sms_with_voicemail(conversation, voicemail_text):
+    if not twilio_client or not YOUR_PHONE_NUMBER:
+        print("Voicemail:", voicemail_text)
+        return
+    try:
+        twilio_client.messages.create(
+            body=f"Voicemail:\n\n{conversation.get_summary()}\nMessage: {voicemail_text}",
+            from_=TWILIO_PHONE_NUMBER,
+            to=YOUR_PHONE_NUMBER
+        )
+        print("Voicemail SMS sent!")
+    except Exception as e:
+        print(f"SMS error: {e}")
+
+@app.route("/status")
+def status():
+    return {"status": "running", "twilio": bool(twilio_client), "ai": bool(anthropic_client)}
+
+@app.route("/")
+def home():
+    return {"message": "AI Phone System is running", "status": "ok"}
