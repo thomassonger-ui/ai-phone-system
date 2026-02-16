@@ -53,7 +53,7 @@ class AIAgent:
     def answer_question(self, question, conversation_history=None):
         if not anthropic_client:
             return "I apologize, our system is having trouble right now."
-        system_prompt = "You are a friendly receptionist for World Teach Pathways. Keep answers natural, conversational, and brief. Speak like a real person - warm, professional, and helpful."
+        system_prompt = "You are a friendly receptionist for World Teach Pathways. Keep answers natural, conversational, and brief. Speak like a real person - warm, professional, and helpful. When someone asks about appointments or scheduling, be helpful and offer to take their information. Say something like: I would be happy to help you schedule an appointment. Could you tell me what dates and times work best for you? Or: Let me get some information from you and someone will reach out to confirm a time."
         messages = conversation_history or []
         if not messages or messages[-1]["content"] != question:
             messages.append({"role": "user", "content": question})
