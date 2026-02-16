@@ -222,3 +222,9 @@ git commit -m "Fix for Render deployment"
 git push
 cat > Procfile << 'EOF'
 web: gunicorn --bind 0.0.0.0:$PORT ai_phone_answering_system:app
+
+# Render deployment entry point
+if __name__ != '__main__':
+    # When run by gunicorn, use PORT from environment
+    import os
+    port = int(os.environ.get('PORT', 10000))
