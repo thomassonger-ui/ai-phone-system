@@ -5,6 +5,9 @@ import anthropic
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 load_dotenv()
 
@@ -16,6 +19,96 @@ TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER')
 YOUR_PHONE_NUMBER = os.environ.get('YOUR_PHONE_NUMBER')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+GMAIL_ADDRESS = os.environ.get('GMAIL_ADDRESS')
+GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD')
+NOTIFICATION_EMAIL = os.environ.get('NOTIFICATION_EMAIL')
+
+twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
+anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+conversations = {}
+
+class ConversationManager:
+    def __init__(self, caller_id):
+        self.caller_id = caller_id
+        self.attempt_count = 0
+        self.conversation_history = []
+        self.caller_questions = []
+
+    def add_question(self, question):
+        self.attempt_count += 1
+        self.caller_questions.append(question)
+        self.conversation_history.append({"role": "user", "content": question})
+
+    def add_response(self, response):
+        self.conversation_history.append({"role": "assistant", "content": response})
+
+    def should_escalate(self):
+        return self.attempt_count >= 3
+
+    def get_summary(self):
+        summary = "Caller: " + self.caller_id + "\n"
+        summary += "Time: " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "\n\n"
+        for i, question in enumerate(self.caller_questions, 1):
+            summary += "Q" + str(i) + ": " + question + "\n"
+        return summary
+
+class AIAgent:
+    def answer_question(self, question, conversation_history=None):
+        if not anthropic_client:
+            return "I apologize, the AI system is not configured."
+        
+        system_prompt = "You are a professional phone assistant. Keep answers brief and conversational."
+        messages = conversation_history or []
+        if not messages or messages[-1]["content"] != question:
+            messages.append({"role": "user", "content": question})
+        
+        try:
+            response = anthropic_client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=300,
+                system=system_prompt,
+                messages=messages
+            )
+            return response.content[0].text
+        except Exception as e:
+            return "I apologize, I am having trouble right now."
+
+ai_agent = AIAgent()
+
+@app.route("/voice", methods=['GET', 'POST'])
+def handle_incoming_call():
+    response = VoiceResponse()
+    caller_id = request.values.get('From', 'Unknown')
+    call_sid = request.values.get('CallSid', 'Unknown')
+    if call_sid not in conversations:
+        conversations[call_sid] = ConversationManager(caller_id)
+    response.say("Thank you for calling. I am an AI assistant. What can I help you with?", voice='alice')
+    gather = Gather(input='
+cat > ai_phone_answering_system.py << 'ENDOFFILE'
+from flask import Flask, request
+from twilio.twiml.voice_response import VoiceResponse, Gather
+from twilio.rest import Client
+import anthropic
+import os
+from datetime import datetime
+from dotenv import load_dotenv
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+load_dotenv()
+
+app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-secret')
+
+TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = os.environ.get('TWILIO_PHONE_NUMBER')
+YOUR_PHONE_NUMBER = os.environ.get('YOUR_PHONE_NUMBER')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+GMAIL_ADDRESS = os.environ.get('GMAIL_ADDRESS')
+GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD')
+NOTIFICATION_EMAIL = os.environ.get('NOTIFICATION_EMAIL')
 
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
@@ -97,7 +190,7 @@ def process_speech():
         return str(response)
     conversation.add_question(speech_result)
     if conversation.should_escalate():
-        send_sms_notification(conversation)
+        send_email_notification(conversation)
         response.say("I am having trouble finding the answer. Let me take a message.", voice='alice')
         response.record(action='/handle_voicemail', max_length=60, transcribe=True, transcribe_callback='/handle_transcription')
         return str(response)
@@ -123,33 +216,53 @@ def handle_transcription():
     call_sid = request.values.get('CallSid', 'Unknown')
     transcription = request.values.get('TranscriptionText', '')
     if call_sid in conversations:
-        send_sms_with_voicemail(conversations[call_sid], transcription)
+        send_email_with_voicemail(conversations[call_sid], transcription)
     return '', 200
 
-def send_sms_notification(conversation):
-    if not twilio_client or not YOUR_PHONE_NUMBER:
-        print("Would send SMS:", conversation.get_summary())
+def send_email_notification(conversation):
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD or not NOTIFICATION_EMAIL:
+        print("Email not configured")
         return
+    
     try:
-        twilio_client.messages.create(
-            body="AI could not answer:\n\n" + conversation.get_summary(),
-            from_=TWILIO_PHONE_NUMBER,
-            to=YOUR_PHONE_NUMBER
-        )
+        msg = MIMEMultipart()
+        msg['From'] = GMAIL_ADDRESS
+        msg['To'] = NOTIFICATION_EMAIL
+        msg['Subject'] = "AI Phone System - Could Not Answer Caller"
+        
+        body = "The AI assistant could not answer the caller's questions:\n\n" + conversation.get_summary()
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        print("Email notification sent!")
     except Exception as e:
-        print("SMS error:", e)
+        print("Email error:", e)
 
-def send_sms_with_voicemail(conversation, voicemail_text):
-    if not twilio_client or not YOUR_PHONE_NUMBER:
+def send_email_with_voicemail(conversation, voicemail_text):
+    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD or not NOTIFICATION_EMAIL:
         return
+    
     try:
-        twilio_client.messages.create(
-            body="Voicemail:\n\n" + conversation.get_summary() + "\nMessage: " + voicemail_text,
-            from_=TWILIO_PHONE_NUMBER,
-            to=YOUR_PHONE_NUMBER
-        )
+        msg = MIMEMultipart()
+        msg['From'] = GMAIL_ADDRESS
+        msg['To'] = NOTIFICATION_EMAIL
+        msg['Subject'] = "AI Phone System - New Voicemail"
+        
+        body = "New voicemail received:\n\n" + conversation.get_summary() + "\nMessage: " + voicemail_text
+        msg.attach(MIMEText(body, 'plain'))
+        
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        print("Voicemail email sent!")
     except Exception as e:
-        print("SMS error:", e)
+        print("Email error:", e)
 
 @app.route("/status")
 def status():
