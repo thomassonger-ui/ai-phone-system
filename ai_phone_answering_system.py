@@ -24,6 +24,66 @@ twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 conversations = {}
 
+BUSINESS_KNOWLEDGE = """
+WORLD TEACH PATHWAYS - AI CURRICULUM SYSTEMS ARCHITECT & COMPLIANCE STRATEGIST
+
+WHO WE ARE:
+We are AI Curriculum Systems Architects and Compliance Strategists specializing in education technology infrastructure and regulatory readiness.
+
+SERVICES OFFERED:
+- 1:1 Academic Consulting (GED, ESL, ELA, Real Estate, Workforce Programs)
+- Curriculum Design & Instructional Systems Architecture
+- AI-Governed Curriculum & Compliance Consulting
+- LMS Setup & Integration (Canvas, Moodle, ProProfs)
+- Accreditation & Regulatory Readiness Support
+- Microlearning & Training Development for Organizations
+
+We serve: individual learners, schools, training providers, and organizations
+
+BUSINESS HOURS:
+- Monday to Friday: 9 AM to 6 PM Eastern Time
+- Limited Saturday availability by appointment
+- AI answering service available 24/7
+
+LOCATION:
+- Fully online nationwide
+- In-person consulting available in Central Florida by request
+
+PRICING:
+- Academic Consulting: Custom packages based on subject and frequency
+- Curriculum & Compliance Consulting: Monthly retainer or project-based
+- LMS & Compliance Systems: Scope provided after consultation
+- Pricing is customized - discovery call recommended
+
+HOW TO BOOK:
+- Call for callback
+- Submit inquiry via website
+- Email: contact@worldteachpathways.com
+- All inquiries reviewed within one business day
+
+SPECIALIZATIONS:
+- GED prep consulting
+- ESL/ELA program development
+- Real Estate exam prep systems
+- Workforce curriculum architecture
+- AI-driven instructional design
+- Compliance and accreditation systems
+
+WHO WE SERVE:
+- High school students and adult learners (academic consulting)
+- Education professionals and institutional clients (systems architecture)
+- Schools and training organizations (compliance and LMS)
+
+CANCELLATION POLICY:
+24-hour notice required for consulting sessions. Late cancellations may be subject to fee.
+
+FREE CONSULTATION:
+Yes - short discovery consultation available to assess fit and scope
+
+KEY DIFFERENTIATOR:
+We specialize in AI-governed curriculum systems and compliance strategy for education providers
+"""
+
 class ConversationManager:
     def __init__(self, caller_id):
         self.caller_id = caller_id
@@ -57,7 +117,41 @@ class AIAgent:
         if not anthropic_client:
             return "I apologize, our system is having trouble right now."
         
-        system_prompt = "You are a friendly receptionist for World Teach Pathways. Keep answers natural, conversational, and brief. Speak like a real person - warm, professional, and helpful. For appointments: Be enthusiastic and ask specific questions one at a time - what day, what time, phone number, and what they want to discuss. Confirm details clearly."
+        system_prompt = f"""You are a professional receptionist for World Teach Pathways, an AI Curriculum Systems Architecture and Compliance Strategy firm.
+
+IMPORTANT - USE THIS BUSINESS INFORMATION TO ANSWER QUESTIONS:
+{BUSINESS_KNOWLEDGE}
+
+Communication Guidelines:
+- Keep answers natural, conversational, and brief (perfect for phone)
+- Speak like a real person - warm, professional, and knowledgeable
+- Use the business information above to give accurate answers
+- Emphasize we're AI Curriculum Systems Architects and Compliance Strategists
+- If asked about something not in the knowledge base, say: "That's a great question. Let me have one of our strategists call you back with details."
+
+For appointments/consultations:
+- Be enthusiastic: "I'd love to help you schedule a consultation with our team!"
+- Mention free discovery consultation when relevant
+- Ask: "What day works best for you?" then "Morning or afternoon?"
+- Ask what they're interested in: "Are you looking for curriculum architecture, compliance strategy, or academic consulting?"
+- Get their phone number
+- Confirm: "Perfect! One of our strategists will call you at [number] to discuss your [service] needs."
+
+For pricing questions:
+- Explain pricing is customized based on scope and needs
+- Recommend a free discovery call to discuss specific pricing
+- Mention we work with both individuals and institutions
+
+For services questions:
+- Emphasize our expertise in AI-governed curriculum systems
+- Highlight compliance and accreditation support
+- Mention LMS integration capabilities
+
+For hours:
+- We're available Monday through Friday, 9 AM to 6 PM Eastern
+- Limited Saturday availability by appointment
+
+Always be helpful, accurate, professional, and use the information provided above."""
         
         messages = conversation_history or []
         if not messages or messages[-1]["content"] != question:
@@ -66,7 +160,7 @@ class AIAgent:
         try:
             response = anthropic_client.messages.create(
                 model="claude-sonnet-4-5-20250929",
-                max_tokens=300,
+                max_tokens=350,
                 system=system_prompt,
                 messages=messages
             )
@@ -104,15 +198,15 @@ def process_speech():
         return str(response)
     conversation.add_question(speech_result)
     
-    is_appointment_request = any(word in speech_result.lower() for word in ['appointment', 'schedule', 'meeting', 'book', 'available'])
+    is_appointment_request = any(word in speech_result.lower() for word in ['appointment', 'schedule', 'meeting', 'book', 'available', 'consultation', 'speak with', 'talk to'])
     
     if conversation.should_escalate():
-        if is_appointment_request or any(word in q.lower() for q in conversation.caller_questions for word in ['appointment', 'schedule']):
+        if is_appointment_request or any(word in q.lower() for q in conversation.caller_questions for word in ['appointment', 'schedule', 'consultation']):
             send_appointment_email(conversation)
-            response.say("Perfect! I have all your information. Someone from our team will call you shortly to confirm your appointment. Thanks for calling!", voice='Google.en-US-Neural2-F')
+            response.say("Perfect! I have all your information. One of our strategists will call you shortly to discuss your needs. Thanks for calling!", voice='Google.en-US-Neural2-F')
         else:
             send_email_notification(conversation)
-            response.say("Let me take your information and someone will get back to you soon.", voice='Google.en-US-Neural2-F')
+            response.say("Let me take your information and someone from our team will get back to you soon.", voice='Google.en-US-Neural2-F')
             response.record(action='/handle_voicemail', max_length=60, transcribe=True, transcribe_callback='/handle_transcription')
             return str(response)
         response.hangup()
@@ -151,18 +245,18 @@ def send_appointment_email(conversation):
         msg = MIMEMultipart()
         msg['From'] = GMAIL_ADDRESS
         msg['To'] = NOTIFICATION_EMAIL
-        msg['Subject'] = "NEW APPOINTMENT REQUEST - World Teach Pathways"
+        msg['Subject'] = "NEW CONSULTATION REQUEST - World Teach Pathways"
         
-        body = "APPOINTMENT REQUEST\n"
+        body = "CONSULTATION REQUEST\n"
         body += "=" * 50 + "\n\n"
         body += "Caller Phone: " + conversation.caller_id + "\n"
-        body += "Call Time: " + datetime.now().strftime('%Y-%m-%d %I:%M %p') + "\n\n"
+        body += "Call Time: " + datetime.now().strftime('%Y-%m-%d %I:%M %p EST') + "\n\n"
         body += "CONVERSATION:\n"
         body += "-" * 50 + "\n"
         body += conversation.get_full_conversation() + "\n"
         body += "-" * 50 + "\n\n"
         body += "ACTION REQUIRED:\n"
-        body += "Call " + conversation.caller_id + " to confirm appointment details.\n"
+        body += "Call " + conversation.caller_id + " to discuss their consultation needs.\n"
         
         msg.attach(MIMEText(body, 'plain'))
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -170,7 +264,7 @@ def send_appointment_email(conversation):
         server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print("Appointment email sent!")
+        print("Consultation email sent!")
     except Exception as e:
         print("Email error:", e)
 
@@ -182,8 +276,8 @@ def send_email_notification(conversation):
         msg = MIMEMultipart()
         msg['From'] = GMAIL_ADDRESS
         msg['To'] = NOTIFICATION_EMAIL
-        msg['Subject'] = "World Teach Pathways - Caller Needs Assistance"
-        body = "A caller needs assistance:\n\n" + conversation.get_summary()
+        msg['Subject'] = "World Teach Pathways - Inquiry"
+        body = "New inquiry:\n\n" + conversation.get_summary()
         msg.attach(MIMEText(body, 'plain'))
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
@@ -219,4 +313,4 @@ def status():
 
 @app.route("/")
 def home():
-    return {"message": "World Teach Pathways Phone System"}
+    return {"message": "World Teach Pathways - AI Curriculum Systems & Compliance Strategy"}
