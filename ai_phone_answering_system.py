@@ -8,9 +8,47 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
+import gspread
+from google.oauth2.service_account import Credentials
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Google Sheets setup
+GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms')
+GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'worldteach-phone-597cdb70d3e8.json')
+
+def get_sheets_client():
+    try:
+        scopes = ['https://www.googleapis.com/auth/spreadsheets']
+        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        print(f"Google Sheets connection error: {e}")
+        return None
+
+def log_to_sheets(caller_id, call_type, conversation_text, voicemail_text=''):
+    try:
+        client = get_sheets_client()
+        if not client:
+            return
+        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+        # Add header row if sheet is empty
+        if sheet.row_count == 0 or sheet.cell(1, 1).value != 'Date':
+            sheet.insert_row(['Date', 'Time', 'Caller Phone', 'Call Type', 'Conversation', 'Voicemail Transcript'], 1)
+        now = datetime.now()
+        row = [
+            now.strftime('%Y-%m-%d'),
+            now.strftime('%I:%M %p EST'),
+            caller_id,
+            call_type,
+            conversation_text,
+            voicemail_text
+        ]
+        sheet.append_row(row)
+        print(f"Logged to Google Sheets: {call_type} from {caller_id}")
+    except Exception as e:
+        print(f"Google Sheets logging error: {e}")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-secret')
@@ -283,6 +321,7 @@ def send_email(subject, body, conversation):
                 pass
 
 def send_appointment_email(conversation):
+    log_to_sheets(conversation.caller_id, 'Consultation Request', conversation.get_full_conversation())
     body = "CONSULTATION REQUEST\n"
     body += "=" * 50 + "\n\n"
     body += "Caller Phone: " + conversation.caller_id + "\n"
@@ -296,10 +335,12 @@ def send_appointment_email(conversation):
     send_email("NEW CONSULTATION REQUEST - World Teach Pathways", body, conversation)
 
 def send_email_notification(conversation):
+    log_to_sheets(conversation.caller_id, 'Inquiry', conversation.get_full_conversation())
     body = "New inquiry:\n\n" + conversation.get_summary()
     send_email("World Teach Pathways - Inquiry", body, conversation)
 
 def send_email_with_voicemail(conversation, voicemail_text):
+    log_to_sheets(conversation.caller_id, 'Voicemail', conversation.get_full_conversation(), voicemail_text)
     body = "New voicemail:\n\n" + conversation.get_summary() + "\nMessage: " + voicemail_text
     send_email("World Teach Pathways - New Voicemail", body, conversation)
 
