@@ -22,7 +22,7 @@ load_dotenv()
 GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1n5F3OjucrbrdOy4ZTrv3XQrC-gkBLeO8_1fMbth83ZA')
 GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'worldteach-phone-597cdb70d3e8.json')
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')  # For Render deployment
-GOOGLE_CALENDAR_ID = os.environ.get('GOOGLE_CALENDAR_ID', 'thomas.songer@gmail.com')
+GOOGLE_CALENDAR_ID = os.environ.get('GOOGLE_CALENDAR_ID', 'f528b0121a79258c4ee2a0a5c7e685d7484ce1b1aff296ba2403218dc91970a5@group.calendar.google.com')
 
 # Business hours (Eastern Time)
 BUSINESS_HOURS_START = 9   # 9 AM
