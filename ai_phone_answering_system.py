@@ -17,11 +17,22 @@ load_dotenv()
 # Google Sheets setup
 GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms')
 GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'worldteach-phone-597cdb70d3e8.json')
+GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')  # For Render deployment
 
 def get_sheets_client():
     try:
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
-        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scopes)
+        # On Render: use environment variable (handles private key line breaks correctly)
+        if GOOGLE_CREDENTIALS_JSON:
+            import json
+            info = json.loads(GOOGLE_CREDENTIALS_JSON)
+            # Fix private key line breaks in case they got escaped
+            if 'private_key' in info:
+                info['private_key'] = info['private_key'].replace('\\n', '\n')
+            creds = Credentials.from_service_account_info(info, scopes=scopes)
+        else:
+            # Local: use the JSON file directly
+            creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scopes)
         return gspread.authorize(creds)
     except Exception as e:
         print(f"Google Sheets connection error: {e}")
