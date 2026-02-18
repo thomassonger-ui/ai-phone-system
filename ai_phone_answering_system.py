@@ -10,33 +10,145 @@ from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+import json
+from datetime import timedelta
+import pytz
 
 # Load environment variables from .env file
 load_dotenv()
 
 # Google Sheets setup
-GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms')
+GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1n5F3OjucrbrdOy4ZTrv3XQrC-gkBLeO8_1fMbth83ZA')
 GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'worldteach-phone-597cdb70d3e8.json')
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')  # For Render deployment
+GOOGLE_CALENDAR_ID = os.environ.get('GOOGLE_CALENDAR_ID', 'thomas.songer@gmail.com')
+
+# Business hours (Eastern Time)
+BUSINESS_HOURS_START = 9   # 9 AM
+BUSINESS_HOURS_END = 18    # 6 PM
+BUSINESS_DAYS = [0, 1, 2, 3, 4]  # Monday to Friday
+EASTERN = pytz.timezone('America/New_York')
+
+def get_google_credentials(scopes):
+    """Get Google credentials from env var (Render) or file (local)."""
+    if GOOGLE_CREDENTIALS_JSON:
+        info = json.loads(GOOGLE_CREDENTIALS_JSON)
+        if 'private_key' in info:
+            info['private_key'] = info['private_key'].replace('\\n', '\n')
+        return Credentials.from_service_account_info(info, scopes=scopes)
+    else:
+        return Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scopes)
 
 def get_sheets_client():
     try:
         scopes = ['https://www.googleapis.com/auth/spreadsheets']
-        # On Render: use environment variable (handles private key line breaks correctly)
-        if GOOGLE_CREDENTIALS_JSON:
-            import json
-            info = json.loads(GOOGLE_CREDENTIALS_JSON)
-            # Fix private key line breaks in case they got escaped
-            if 'private_key' in info:
-                info['private_key'] = info['private_key'].replace('\\n', '\n')
-            creds = Credentials.from_service_account_info(info, scopes=scopes)
-        else:
-            # Local: use the JSON file directly
-            creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_FILE, scopes=scopes)
+        creds = get_google_credentials(scopes)
         return gspread.authorize(creds)
     except Exception as e:
         print(f"Google Sheets connection error: {e}")
         return None
+
+def get_calendar_service():
+    try:
+        scopes = ['https://www.googleapis.com/auth/calendar']
+        creds = get_google_credentials(scopes)
+        return build('calendar', 'v3', credentials=creds)
+    except Exception as e:
+        print(f"Google Calendar connection error: {e}")
+        return None
+
+def get_available_slots(days_ahead=3):
+    """Get next available 1-hour slots within business hours."""
+    try:
+        service = get_calendar_service()
+        if not service:
+            return []
+
+        now = datetime.now(EASTERN)
+        end_date = now + timedelta(days=days_ahead)
+
+        # Get existing events
+        events_result = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            timeMin=now.isoformat(),
+            timeMax=end_date.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        events = events_result.get('items', [])
+
+        # Build list of busy times
+        busy = []
+        for event in events:
+            start = event['start'].get('dateTime')
+            end = event['end'].get('dateTime')
+            if start and end:
+                busy.append((
+                    datetime.fromisoformat(start).astimezone(EASTERN),
+                    datetime.fromisoformat(end).astimezone(EASTERN)
+                ))
+
+        # Find free 1-hour slots
+        slots = []
+        check = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        while check < end_date and len(slots) < 4:
+            if check.weekday() in BUSINESS_DAYS and BUSINESS_HOURS_START <= check.hour < BUSINESS_HOURS_END:
+                slot_end = check + timedelta(hours=1)
+                conflict = any(b[0] < slot_end and b[1] > check for b in busy)
+                if not conflict:
+                    slots.append(check)
+            check += timedelta(hours=1)
+        return slots
+    except Exception as e:
+        print(f"Calendar availability error: {e}")
+        return []
+
+def book_appointment(caller_phone, slot_datetime, service_interest='consultation'):
+    """Book a 1-hour appointment on Google Calendar."""
+    try:
+        service = get_calendar_service()
+        if not service:
+            return False
+
+        end_time = slot_datetime + timedelta(hours=1)
+        event = {
+            'summary': f'World Teach Pathways - Consultation with {caller_phone}',
+            'description': f'Consultation request from {caller_phone}\nService interest: {service_interest}\nBooked via AI phone system.',
+            'start': {
+                'dateTime': slot_datetime.isoformat(),
+                'timeZone': 'America/New_York'
+            },
+            'end': {
+                'dateTime': end_time.isoformat(),
+                'timeZone': 'America/New_York'
+            },
+            'reminders': {
+                'useDefault': False,
+                'overrides': [
+                    {'method': 'email', 'minutes': 60},
+                    {'method': 'popup', 'minutes': 30}
+                ]
+            }
+        }
+        service.events().insert(calendarId=GOOGLE_CALENDAR_ID, body=event).execute()
+        print(f"Appointment booked for {caller_phone} at {slot_datetime}")
+        return True
+    except Exception as e:
+        print(f"Calendar booking error: {e}")
+        return False
+
+def format_slots_for_speech(slots):
+    """Format available slots into natural speech."""
+    if not slots:
+        return "I don't see any open slots in the next few days, but I can have someone call you back to schedule."
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    parts = []
+    for slot in slots[:3]:
+        day = days[slot.weekday()]
+        hour = slot.strftime('%I %p').lstrip('0')
+        parts.append(f"{day} at {hour}")
+    return "I have openings " + ", or ".join(parts) + ". Which works best for you?"
 
 def log_to_sheets(caller_id, call_type, conversation_text, voicemail_text=''):
     try:
@@ -194,7 +306,7 @@ For appointments/consultations:
 - Be enthusiastic: "I'd love to help you schedule a consultation with our team!"
 - Mention free discovery consultation when relevant
 - Ask: "What day works best for you?" then "Morning or afternoon?"
-- Ask what they're interested in: "Are you looking for curriculum architecture, compliance strategy, or academic consulting?"
+- Ask what they're interested in: "Are you looking for curriculum architecture, compliance strategy, or LMS integration?"
 - Get their phone number
 - Confirm: "Perfect! One of our strategists will call you at [number] to discuss your [service] needs."
 
@@ -265,8 +377,18 @@ def process_speech():
 
     if conversation.should_escalate():
         if is_appointment_request or any(word in q.lower() for q in conversation.caller_questions for word in ['appointment', 'schedule', 'consultation']):
-            send_appointment_email(conversation)
-            response.say("Perfect! I have all your information. One of our strategists will call you shortly to discuss your needs. Thanks for calling!", voice='Google.en-US-Neural2-F')
+            # Check calendar for available slots
+            slots = get_available_slots(days_ahead=5)
+            if slots:
+                # Book the first available slot automatically
+                booked_slot = slots[0]
+                book_appointment(caller_id, booked_slot)
+                send_appointment_email(conversation, booked_slot)
+                slot_text = booked_slot.strftime('%A, %B %d at %I:%M %p Eastern')
+                response.say(f"I've gone ahead and scheduled a discovery consultation for you on {slot_text}. One of our strategists will call you then. Thanks for calling World Teach Pathways!", voice='Google.en-US-Neural2-F')
+            else:
+                send_appointment_email(conversation)
+                response.say("Perfect! I have all your information. One of our strategists will call you shortly to schedule a time. Thanks for calling!", voice='Google.en-US-Neural2-F')
         else:
             send_email_notification(conversation)
             response.say("Let me take your information and someone from our team will get back to you soon.", voice='Google.en-US-Neural2-F')
@@ -334,12 +456,14 @@ def send_email(subject, body, conversation):
             except Exception:
                 pass
 
-def send_appointment_email(conversation):
+def send_appointment_email(conversation, booked_slot=None):
     log_to_sheets(conversation.caller_id, 'Consultation Request', conversation.get_full_conversation())
     body = "CONSULTATION REQUEST\n"
     body += "=" * 50 + "\n\n"
     body += "Caller Phone: " + conversation.caller_id + "\n"
     body += "Call Time: " + datetime.now().strftime('%Y-%m-%d %I:%M %p EST') + "\n\n"
+    if booked_slot:
+        body += "APPOINTMENT BOOKED: " + booked_slot.strftime('%A, %B %d at %I:%M %p EST') + "\n\n"
     body += "CONVERSATION:\n"
     body += "-" * 50 + "\n"
     body += conversation.get_full_conversation() + "\n"
