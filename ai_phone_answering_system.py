@@ -15,7 +15,7 @@ from google.oauth2.service_account import Credentials
 load_dotenv()
 
 # Google Sheets setup
-GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1n5F3OjucrbrdOy4ZTrv3XQrC-gkBLeO8_1fMbth83ZA')
+GOOGLE_SHEET_ID = os.environ.get('GOOGLE_SHEET_ID', '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms')
 GOOGLE_CREDENTIALS_FILE = os.environ.get('GOOGLE_CREDENTIALS_FILE', 'worldteach-phone-597cdb70d3e8.json')
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')  # For Render deployment
 
@@ -85,17 +85,18 @@ BUSINESS_KNOWLEDGE = """
 WORLD TEACH PATHWAYS - AI CURRICULUM SYSTEMS ARCHITECT & COMPLIANCE STRATEGIST
 
 WHO WE ARE:
-We are AI Curriculum Systems Architects and Compliance Strategists specializing in education technology infrastructure and regulatory readiness.
+We are AI Curriculum Systems Architects and Compliance Strategists specializing in education technology infrastructure and regulatory readiness for schools, training providers, and organizations.
 
 SERVICES OFFERED:
-- 1:1 Academic Consulting (GED, ESL, ELA, Real Estate, Workforce Programs)
 - Curriculum Design & Instructional Systems Architecture
 - AI-Governed Curriculum & Compliance Consulting
 - LMS Setup & Integration (Canvas, Moodle, ProProfs)
 - Accreditation & Regulatory Readiness Support
 - Microlearning & Training Development for Organizations
+- Compliance Systems Design for Education Providers
 
-We serve: individual learners, schools, training providers, and organizations
+We serve: schools, training providers, workforce organizations, and institutional clients ONLY.
+We do NOT offer individual tutoring, GED prep, ESL classes, or personal academic coaching.
 
 BUSINESS HOURS:
 - Monday to Friday: 9 AM to 6 PM Eastern Time
@@ -107,7 +108,6 @@ LOCATION:
 - In-person consulting available in Central Florida by request
 
 PRICING:
-- Academic Consulting: Custom packages based on subject and frequency
 - Curriculum & Compliance Consulting: Monthly retainer or project-based
 - LMS & Compliance Systems: Scope provided after consultation
 - Pricing is customized - discovery call recommended
@@ -119,17 +119,17 @@ HOW TO BOOK:
 - All inquiries reviewed within one business day
 
 SPECIALIZATIONS:
-- GED prep consulting
-- ESL/ELA program development
-- Real Estate exam prep systems
 - Workforce curriculum architecture
 - AI-driven instructional design
 - Compliance and accreditation systems
+- LMS platform integration
+- AI-governed curriculum systems
 
 WHO WE SERVE:
-- High school students and adult learners (academic consulting)
-- Education professionals and institutional clients (systems architecture)
 - Schools and training organizations (compliance and LMS)
+- Education professionals and institutional clients (systems architecture)
+- Workforce development organizations
+- Corporate training departments
 
 CANCELLATION POLICY:
 24-hour notice required for consulting sessions. Late cancellations may be subject to fee.
@@ -138,7 +138,10 @@ FREE CONSULTATION:
 Yes - short discovery consultation available to assess fit and scope
 
 KEY DIFFERENTIATOR:
-We specialize in AI-governed curriculum systems and compliance strategy for education providers
+We specialize in AI-governed curriculum systems and compliance strategy for education providers and organizations.
+
+IF SOMEONE ASKS ABOUT INDIVIDUAL TUTORING, GED, ESL, OR PERSONAL ACADEMIC HELP:
+Politely let them know we focus exclusively on institutional and organizational clients, and suggest they search for local tutoring services or community colleges for individual academic support.
 """
 
 class ConversationManager:
