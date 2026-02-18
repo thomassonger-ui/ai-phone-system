@@ -7,6 +7,10 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'default-secret')
@@ -19,6 +23,10 @@ ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 GMAIL_ADDRESS = os.environ.get('GMAIL_ADDRESS')
 GMAIL_APP_PASSWORD = os.environ.get('GMAIL_APP_PASSWORD')
 NOTIFICATION_EMAIL = os.environ.get('NOTIFICATION_EMAIL')
+
+# Your public server URL (e.g. from Railway, Render, Heroku, ngrok)
+# Set this in your .env file as: BASE_URL=https://your-app-name.up.railway.app
+BASE_URL = os.environ.get('BASE_URL', '').rstrip('/')
 
 twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) if TWILIO_ACCOUNT_SID else None
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
@@ -116,7 +124,7 @@ class AIAgent:
     def answer_question(self, question, conversation_history=None):
         if not anthropic_client:
             return "I apologize, our system is having trouble right now."
-        
+
         system_prompt = f"""You are a professional receptionist for World Teach Pathways, an AI Curriculum Systems Architecture and Compliance Strategy firm.
 
 IMPORTANT - USE THIS BUSINESS INFORMATION TO ANSWER QUESTIONS:
@@ -152,11 +160,11 @@ For hours:
 - Limited Saturday availability by appointment
 
 Always be helpful, accurate, professional, and use the information provided above."""
-        
+
         messages = conversation_history or []
         if not messages or messages[-1]["content"] != question:
             messages.append({"role": "user", "content": question})
-        
+
         try:
             response = anthropic_client.messages.create(
                 model="claude-sonnet-4-5-20250929",
@@ -178,9 +186,10 @@ def handle_incoming_call():
     if call_sid not in conversations:
         conversations[call_sid] = ConversationManager(caller_id)
     response.say("Hi! Thanks for calling World Teach Pathways. How can I help you today?", voice='Google.en-US-Neural2-F', language='en-US')
-    gather = Gather(input='speech', action='/process_speech', speech_timeout='auto', language='en-US')
+    # FIX: Use absolute URL so Twilio can find your server
+    gather = Gather(input='speech', action=BASE_URL + '/process_speech', speech_timeout='auto', language='en-US')
     response.append(gather)
-    response.redirect('/voice')
+    response.redirect(BASE_URL + '/voice')
     return str(response)
 
 @app.route("/process_speech", methods=['POST'])
@@ -194,12 +203,13 @@ def process_speech():
     conversation = conversations[call_sid]
     if not speech_result:
         response.say("Sorry, I didn't catch that. Could you repeat that?", voice='Google.en-US-Neural2-F')
-        response.redirect('/voice')
+        # FIX: Use absolute URL
+        response.redirect(BASE_URL + '/voice')
         return str(response)
     conversation.add_question(speech_result)
-    
+
     is_appointment_request = any(word in speech_result.lower() for word in ['appointment', 'schedule', 'meeting', 'book', 'available', 'consultation', 'speak with', 'talk to'])
-    
+
     if conversation.should_escalate():
         if is_appointment_request or any(word in q.lower() for q in conversation.caller_questions for word in ['appointment', 'schedule', 'consultation']):
             send_appointment_email(conversation)
@@ -207,16 +217,23 @@ def process_speech():
         else:
             send_email_notification(conversation)
             response.say("Let me take your information and someone from our team will get back to you soon.", voice='Google.en-US-Neural2-F')
-            response.record(action='/handle_voicemail', max_length=60, transcribe=True, transcribe_callback='/handle_transcription')
+            # FIX: Use absolute URLs for voicemail action and transcription callback
+            response.record(
+                action=BASE_URL + '/handle_voicemail',
+                max_length=60,
+                transcribe=True,
+                transcribe_callback=BASE_URL + '/handle_transcription'
+            )
             return str(response)
         response.hangup()
         return str(response)
-    
+
     ai_answer = ai_agent.answer_question(speech_result, conversation.conversation_history)
     conversation.add_response(ai_answer)
     response.say(ai_answer, voice='Google.en-US-Neural2-F', language='en-US')
     response.say("Is there anything else I can help you with?", voice='Google.en-US-Neural2-F')
-    gather = Gather(input='speech', action='/process_speech', speech_timeout='auto', timeout=5)
+    # FIX: Use absolute URL
+    gather = Gather(input='speech', action=BASE_URL + '/process_speech', speech_timeout='auto', timeout=5)
     response.append(gather)
     response.say("Thanks for calling! Have a great day!", voice='Google.en-US-Neural2-F')
     response.hangup()
@@ -237,79 +254,58 @@ def handle_transcription():
         send_email_with_voicemail(conversations[call_sid], transcription)
     return '', 200
 
-def send_appointment_email(conversation):
+def send_email(subject, body, conversation):
+    """Helper to send email - handles connection properly and closes on error."""
     if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD or not NOTIFICATION_EMAIL:
-        print("Email not configured")
+        print("Email not configured - check GMAIL_ADDRESS, GMAIL_APP_PASSWORD, NOTIFICATION_EMAIL in .env")
         return
+    server = None
     try:
         msg = MIMEMultipart()
         msg['From'] = GMAIL_ADDRESS
         msg['To'] = NOTIFICATION_EMAIL
-        msg['Subject'] = "NEW CONSULTATION REQUEST - World Teach Pathways"
-        
-        body = "CONSULTATION REQUEST\n"
-        body += "=" * 50 + "\n\n"
-        body += "Caller Phone: " + conversation.caller_id + "\n"
-        body += "Call Time: " + datetime.now().strftime('%Y-%m-%d %I:%M %p EST') + "\n\n"
-        body += "CONVERSATION:\n"
-        body += "-" * 50 + "\n"
-        body += conversation.get_full_conversation() + "\n"
-        body += "-" * 50 + "\n\n"
-        body += "ACTION REQUIRED:\n"
-        body += "Call " + conversation.caller_id + " to discuss their consultation needs.\n"
-        
+        msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain'))
+        # FIX: Use context-safe server handling so connection always closes
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
         server.send_message(msg)
-        server.quit()
-        print("Consultation email sent!")
+        print(f"Email sent: {subject}")
     except Exception as e:
-        print("Email error:", e)
+        print(f"Email error: {e}")
+    finally:
+        # FIX: Always close the SMTP connection, even if an error occurred
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+def send_appointment_email(conversation):
+    body = "CONSULTATION REQUEST\n"
+    body += "=" * 50 + "\n\n"
+    body += "Caller Phone: " + conversation.caller_id + "\n"
+    body += "Call Time: " + datetime.now().strftime('%Y-%m-%d %I:%M %p EST') + "\n\n"
+    body += "CONVERSATION:\n"
+    body += "-" * 50 + "\n"
+    body += conversation.get_full_conversation() + "\n"
+    body += "-" * 50 + "\n\n"
+    body += "ACTION REQUIRED:\n"
+    body += "Call " + conversation.caller_id + " to discuss their consultation needs.\n"
+    send_email("NEW CONSULTATION REQUEST - World Teach Pathways", body, conversation)
 
 def send_email_notification(conversation):
-    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD or not NOTIFICATION_EMAIL:
-        print("Email not configured")
-        return
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = GMAIL_ADDRESS
-        msg['To'] = NOTIFICATION_EMAIL
-        msg['Subject'] = "World Teach Pathways - Inquiry"
-        body = "New inquiry:\n\n" + conversation.get_summary()
-        msg.attach(MIMEText(body, 'plain'))
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        print("Email sent!")
-    except Exception as e:
-        print("Email error:", e)
+    body = "New inquiry:\n\n" + conversation.get_summary()
+    send_email("World Teach Pathways - Inquiry", body, conversation)
 
 def send_email_with_voicemail(conversation, voicemail_text):
-    if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD or not NOTIFICATION_EMAIL:
-        return
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = GMAIL_ADDRESS
-        msg['To'] = NOTIFICATION_EMAIL
-        msg['Subject'] = "World Teach Pathways - New Voicemail"
-        body = "New voicemail:\n\n" + conversation.get_summary() + "\nMessage: " + voicemail_text
-        msg.attach(MIMEText(body, 'plain'))
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        print("Voicemail email sent!")
-    except Exception as e:
-        print("Email error:", e)
+    body = "New voicemail:\n\n" + conversation.get_summary() + "\nMessage: " + voicemail_text
+    send_email("World Teach Pathways - New Voicemail", body, conversation)
 
 @app.route("/status")
 def status():
-    return {"status": "running"}
+    return {"status": "running", "base_url": BASE_URL or "NOT SET - add BASE_URL to .env"}
 
 @app.route("/")
 def home():
