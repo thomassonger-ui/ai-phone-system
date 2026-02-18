@@ -136,6 +136,7 @@ Communication Guidelines:
 - Use the business information above to give accurate answers
 - Emphasize we're AI Curriculum Systems Architects and Compliance Strategists
 - If asked about something not in the knowledge base, say: "That's a great question. Let me have one of our strategists call you back with details."
+- IMPORTANT: End each response naturally. Only ask a follow-up question if it makes sense in context. For example, after answering about services you might ask "Would you like to schedule a free discovery call?" but do NOT robotically add "Is there anything else I can help you with?" every single time. Keep it conversational and natural.
 
 For appointments/consultations:
 - Be enthusiastic: "I'd love to help you schedule a consultation with our team!"
@@ -231,11 +232,10 @@ def process_speech():
     ai_answer = ai_agent.answer_question(speech_result, conversation.conversation_history)
     conversation.add_response(ai_answer)
     response.say(ai_answer, voice='Google.en-US-Neural2-F', language='en-US')
-    response.say("Is there anything else I can help you with?", voice='Google.en-US-Neural2-F')
-    # FIX: Use absolute URL
-    gather = Gather(input='speech', action=BASE_URL + '/process_speech', speech_timeout='auto', timeout=5)
+    # Let Claude's response end naturally - no robotic follow-up phrase added
+    gather = Gather(input='speech', action=BASE_URL + '/process_speech', speech_timeout='auto', timeout=6)
     response.append(gather)
-    response.say("Thanks for calling! Have a great day!", voice='Google.en-US-Neural2-F')
+    response.say("Thanks for calling World Teach Pathways! Have a great day!", voice='Google.en-US-Neural2-F')
     response.hangup()
     return str(response)
 
